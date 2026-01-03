@@ -2,7 +2,7 @@
  * @name xQc7TVEmotes
  * @author valerie.sh
  * @description Displays 7TV emotes from xQc's emote set (or any custom 7TV emote set) in Discord messages
- * @version 1.2.0
+ * @version 1.2.1
  * @authorId 1312596471778115627
  * @source https://github.com/atvalerie/agiwtrebivhdvd
  * @updateUrl https://raw.githubusercontent.com/atvalerie/agiwtrebivhdvd/main/xQc7TVEmotes.plugin.js
@@ -11,7 +11,7 @@
 module.exports = class xQc7TVEmotes {
     constructor() {
         this.name = "xQc7TVEmotes";
-        this.version = "1.2.0";
+        this.version = "1.2.1";
         this.author = "valerie.sh";
         this.description = "Displays 7TV emotes from any 7TV emote set in Discord messages";
 
@@ -558,6 +558,10 @@ module.exports = class xQc7TVEmotes {
         if (!element || element.dataset.x7tvProcessed) return;
         element.dataset.x7tvProcessed = "true";
 
+        this.processTextNodes(element);
+    }
+
+    processTextNodes(element) {
         const walker = document.createTreeWalker(
             element,
             NodeFilter.SHOW_TEXT,
@@ -579,6 +583,9 @@ module.exports = class xQc7TVEmotes {
     processTextNode(textNode) {
         const text = textNode.textContent;
         if (!text || !text.trim()) return;
+
+        // Skip syntax-highlighted code blocks (they flicker due to Discord's re-rendering)
+        if (textNode.parentElement?.closest('[class*="hljs"]')) return;
 
         const size = this.settings.emoteSize;
         const mode = this.settings.matchMode;
