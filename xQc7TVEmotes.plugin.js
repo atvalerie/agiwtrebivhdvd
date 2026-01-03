@@ -2,7 +2,7 @@
  * @name xQc7TVEmotes
  * @author valerie.sh
  * @description Displays 7TV emotes from xQc's emote set (or any custom 7TV emote set) in Discord messages
- * @version 1.0.0
+ * @version 1.0.1
  * @authorId 1312596471778115627
  * @source https://github.com/atvalerie/agiwtrebivhdvd
  * @updateUrl https://raw.githubusercontent.com/atvalerie/agiwtrebivhdvd/main/xQc7TVEmotes.plugin.js
@@ -11,7 +11,7 @@
 module.exports = class xQc7TVEmotes {
     constructor() {
         this.name = "xQc7TVEmotes";
-        this.version = "1.0.0";
+        this.version = "1.0.1";
         this.author = "valerie.sh";
         this.description = "Displays 7TV emotes from any 7TV emote set in Discord messages";
 
@@ -312,10 +312,17 @@ module.exports = class xQc7TVEmotes {
     setupObserver() {
         this.observer = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
+                // Handle new nodes
                 for (const node of mutation.addedNodes) {
                     if (node.nodeType === Node.ELEMENT_NODE) {
                         this.processNode(node);
                     }
+                }
+
+                // Handle edited messages (content changed in already-processed element)
+                if (mutation.type === "childList" && mutation.target.matches?.('[class*="messageContent"]')) {
+                    delete mutation.target.dataset.x7tvProcessed;
+                    this.processMessageContent(mutation.target);
                 }
             }
         });
