@@ -2,7 +2,7 @@
  * @name xQc7TVEmotes
  * @author valerie.sh
  * @description Displays 7TV emotes from xQc's emote set (or any custom 7TV emote set) in Discord messages
- * @version 1.0.1
+ * @version 1.1.0
  * @authorId 1312596471778115627
  * @source https://github.com/atvalerie/agiwtrebivhdvd
  * @updateUrl https://raw.githubusercontent.com/atvalerie/agiwtrebivhdvd/main/xQc7TVEmotes.plugin.js
@@ -11,7 +11,7 @@
 module.exports = class xQc7TVEmotes {
     constructor() {
         this.name = "xQc7TVEmotes";
-        this.version = "1.0.1";
+        this.version = "1.1.0";
         this.author = "valerie.sh";
         this.description = "Displays 7TV emotes from any 7TV emote set in Discord messages";
 
@@ -19,6 +19,8 @@ module.exports = class xQc7TVEmotes {
         this.defaultSettings = {
             emoteSetId: "01FE9DRF000009TR6M9N941CYW",
             emoteSize: 32,
+            pickerEmoteSize: 40,
+            hoverEmoteSize: 128,
             matchMode: "word",
             showTooltips: true,
             debugMode: false
@@ -29,6 +31,8 @@ module.exports = class xQc7TVEmotes {
         this.emotesLoaded = false;
         this.observer = null;
         this.styleElement = null;
+        this.pickerOpen = false;
+        this.currentRandomEmote = null;
     }
 
     // Load settings from BdApi
@@ -55,6 +59,7 @@ module.exports = class xQc7TVEmotes {
         this.loadEmotes().then(() => {
             this.setupObserver();
             this.processExistingMessages();
+            this.setupPickerButton();
             BdApi.UI.showToast(`Loaded ${Object.keys(this.emoteMap).length} emotes!`, { type: "success" });
         }).catch(err => {
             console.error(`[${this.name}]`, err);
@@ -66,6 +71,8 @@ module.exports = class xQc7TVEmotes {
         this.log("Stopping plugin...");
         this.removeStyles();
         this.removeObserver();
+        this.removePickerButton();
+        this.closePicker();
         this.cleanupEmotes();
         this.emoteMap = {};
         this.emotesLoaded = false;
@@ -294,6 +301,138 @@ module.exports = class xQc7TVEmotes {
                 margin-top: 8px;
                 text-align: center;
             }
+
+            /* Picker button */
+            .x7tv-picker-btn {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 32px;
+                height: 32px;
+                border-radius: 4px;
+                cursor: pointer;
+                background: transparent;
+                border: none;
+                padding: 0;
+            }
+
+            .x7tv-picker-btn:hover {
+                background: var(--background-modifier-hover);
+            }
+
+            .x7tv-picker-btn svg {
+                width: 22px;
+                height: 22px;
+                color: var(--interactive-text-default);
+                transition: color 0.15s;
+            }
+
+            .x7tv-picker-btn:hover svg {
+                color: #00b4ff;
+            }
+
+            /* Picker popup */
+            .x7tv-picker {
+                position: absolute;
+                bottom: 100%;
+                right: 0;
+                width: 420px;
+                height: 450px;
+                background: var(--background-surface-high);
+                border-radius: 8px;
+                box-shadow: var(--shadow-high);
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                z-index: 1000;
+                margin-bottom: 8px;
+            }
+
+            .x7tv-picker-header {
+                padding: 12px 0;
+                margin: 0 16px;
+                border-bottom: 1px solid var(--border-faint);
+            }
+
+            .x7tv-picker-search {
+                width: 100%;
+                padding: 8px 12px;
+                border-radius: 4px;
+                border: none;
+                background: var(--input-background);
+                color: var(--text-default);
+                font-size: 14px;
+                outline: none;
+            }
+
+            .x7tv-picker-search::placeholder {
+                color: var(--text-muted);
+            }
+
+            .x7tv-picker-grid {
+                flex: 1;
+                overflow-y: auto;
+                padding: 8px 16px;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px;
+                align-content: start;
+            }
+
+            .x7tv-picker-emote {
+                height: 48px;
+                min-width: 48px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 4px;
+                cursor: pointer;
+                padding: 4px;
+                flex-shrink: 0;
+            }
+
+            .x7tv-picker-emote:hover {
+                background: var(--background-modifier-hover);
+            }
+
+            .x7tv-picker-emote img {
+                max-height: 40px;
+                width: auto;
+                object-fit: contain;
+            }
+
+            .x7tv-picker-empty {
+                width: 100%;
+                text-align: center;
+                color: var(--text-muted);
+                padding: 20px;
+            }
+
+            .x7tv-picker-footer {
+                padding: 8px 0;
+                margin: 0 16px;
+                border-top: 1px solid var(--border-faint);
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                min-height: 40px;
+            }
+
+            .x7tv-picker-footer img {
+                width: 24px;
+                height: 24px;
+                object-fit: contain;
+            }
+
+            .x7tv-picker-footer-name {
+                color: var(--text-default);
+                font-weight: 500;
+            }
+
+            .x7tv-picker-footer-creator {
+                color: var(--text-muted);
+                font-size: 12px;
+            }
         `;
 
         this.styleElement = document.createElement("style");
@@ -505,11 +644,14 @@ module.exports = class xQc7TVEmotes {
         tooltip.id = "x7tv-tooltip";
         tooltip.style.visibility = "hidden";
 
-        // Preview image
+        // Preview image - use 4x for large sizes
+        const hoverSize = this.settings.hoverEmoteSize;
         const preview = document.createElement("img");
         preview.className = "x7tv-tooltip-preview";
-        preview.src = emote.previewUrl || emote.url;
+        preview.src = `${emote.baseUrl}/4x.webp`;
         preview.alt = emoteName;
+        preview.style.maxWidth = `${hoverSize}px`;
+        preview.style.maxHeight = `${hoverSize}px`;
         tooltip.appendChild(preview);
 
         // Emote name
@@ -554,73 +696,78 @@ module.exports = class xQc7TVEmotes {
 
         BdApi.ContextMenu.open(event, BdApi.ContextMenu.buildMenu([
             {
-                type: "group",
+                type: "submenu",
+                label: "Open",
+                id: "x7tv-open",
                 items: [
                     {
-                        type: "submenu",
-                        label: "Open",
-                        items: [
-                            {
-                                type: "text",
-                                label: "7TV Page",
-                                action: () => window.open(sevenTvUrl, "_blank")
-                            },
-                            { type: "separator" },
-                            {
-                                type: "text",
-                                label: "1x Image",
-                                action: () => window.open(url1x, "_blank")
-                            },
-                            {
-                                type: "text",
-                                label: "2x Image",
-                                action: () => window.open(url2x, "_blank")
-                            },
-                            {
-                                type: "text",
-                                label: "4x Image",
-                                action: () => window.open(url4x, "_blank")
-                            }
-                        ]
+                        type: "text",
+                        id: "x7tv-open-7tv",
+                        label: "7TV Page",
+                        action: () => window.open(sevenTvUrl, "_blank")
+                    },
+                    { type: "separator", id: "x7tv-open-sep" },
+                    {
+                        type: "text",
+                        id: "x7tv-open-1x",
+                        label: "1x Image",
+                        action: () => window.open(url1x, "_blank")
                     },
                     {
-                        type: "submenu",
-                        label: "Copy Link",
-                        items: [
-                            {
-                                type: "text",
-                                label: "7TV Page",
-                                action: () => {
-                                    navigator.clipboard.writeText(sevenTvUrl);
-                                    BdApi.UI.showToast("Copied 7TV link!", { type: "success" });
-                                }
-                            },
-                            { type: "separator" },
-                            {
-                                type: "text",
-                                label: "1x Image",
-                                action: () => {
-                                    navigator.clipboard.writeText(url1x);
-                                    BdApi.UI.showToast("Copied 1x link!", { type: "success" });
-                                }
-                            },
-                            {
-                                type: "text",
-                                label: "2x Image",
-                                action: () => {
-                                    navigator.clipboard.writeText(url2x);
-                                    BdApi.UI.showToast("Copied 2x link!", { type: "success" });
-                                }
-                            },
-                            {
-                                type: "text",
-                                label: "4x Image",
-                                action: () => {
-                                    navigator.clipboard.writeText(url4x);
-                                    BdApi.UI.showToast("Copied 4x link!", { type: "success" });
-                                }
-                            }
-                        ]
+                        type: "text",
+                        id: "x7tv-open-2x",
+                        label: "2x Image",
+                        action: () => window.open(url2x, "_blank")
+                    },
+                    {
+                        type: "text",
+                        id: "x7tv-open-4x",
+                        label: "4x Image",
+                        action: () => window.open(url4x, "_blank")
+                    }
+                ]
+            },
+            {
+                type: "submenu",
+                label: "Copy Link",
+                id: "x7tv-copy",
+                items: [
+                    {
+                        type: "text",
+                        id: "x7tv-copy-7tv",
+                        label: "7TV Page",
+                        action: () => {
+                            navigator.clipboard.writeText(sevenTvUrl);
+                            BdApi.UI.showToast("Copied 7TV link!", { type: "success" });
+                        }
+                    },
+                    { type: "separator", id: "x7tv-copy-sep" },
+                    {
+                        type: "text",
+                        id: "x7tv-copy-1x",
+                        label: "1x Image",
+                        action: () => {
+                            navigator.clipboard.writeText(url1x);
+                            BdApi.UI.showToast("Copied 1x link!", { type: "success" });
+                        }
+                    },
+                    {
+                        type: "text",
+                        id: "x7tv-copy-2x",
+                        label: "2x Image",
+                        action: () => {
+                            navigator.clipboard.writeText(url2x);
+                            BdApi.UI.showToast("Copied 2x link!", { type: "success" });
+                        }
+                    },
+                    {
+                        type: "text",
+                        id: "x7tv-copy-4x",
+                        label: "4x Image",
+                        action: () => {
+                            navigator.clipboard.writeText(url4x);
+                            BdApi.UI.showToast("Copied 4x link!", { type: "success" });
+                        }
                     }
                 ]
             }
@@ -641,6 +788,303 @@ module.exports = class xQc7TVEmotes {
         this.hideTooltip();
     }
 
+    // ============ EMOTE PICKER ============
+
+    setupPickerButton() {
+        this.pickerButtonObserver = new MutationObserver(() => {
+            this.injectPickerButton();
+        });
+
+        this.pickerButtonObserver.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        this.injectPickerButton();
+    }
+
+    removePickerButton() {
+        if (this.pickerButtonObserver) {
+            this.pickerButtonObserver.disconnect();
+            this.pickerButtonObserver = null;
+        }
+        document.querySelectorAll('.x7tv-picker-btn').forEach(el => el.remove());
+    }
+
+    injectPickerButton() {
+        // Try multiple selectors for the emoji button
+        const emojiButtons = document.querySelectorAll('[aria-label="Select emoji"], [aria-label="Open emoji picker"], [class*="emojiButton"], [class*="emoji"][class*="Button"]');
+
+        emojiButtons.forEach(emojiButton => {
+            // Check if we already added our button near this one
+            const parent = emojiButton.parentElement;
+            if (!parent || parent.querySelector('.x7tv-picker-btn')) return;
+
+            const btn = document.createElement('button');
+            btn.className = 'x7tv-picker-btn';
+            btn.type = 'button';
+            btn.setAttribute('aria-label', '7TV Emotes');
+            btn.innerHTML = this.get7TVLogo();
+
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.togglePicker(btn);
+            });
+
+            // Insert before the emoji button
+            parent.insertBefore(btn, emojiButton);
+            this.log('Injected picker button');
+        });
+    }
+
+    get7TVLogo() {
+        return `<svg width="24" height="24" viewBox="0 0 28 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path d="M20.7465 5.48825L21.9799 3.33745L22.646 2.20024L21.4125 0.0494437V0H14.8259L17.2928 4.3016L17.9836 5.48825H20.7465Z"></path>
+            <path d="M7.15395 19.9258L14.5546 7.02104L15.4673 5.43884L13.0004 1.13724L12.3097 0.0247596H1.8995L0.666057 2.17556L0 3.31276L1.23344 5.46356V5.51301H9.12745L2.96025 16.267L2.09685 17.7998L3.33029 19.9506V20H7.15395"></path>
+            <path d="M17.4655 19.9257H21.2398L26.1736 11.3225L27.037 9.83924L25.8036 7.68844V7.63899H22.0046L19.5377 11.9406L19.365 12.262L16.8981 7.96038L16.7255 7.63899L14.2586 11.9406L13.5679 13.1272L17.2682 19.5796L17.4655 19.9257Z"></path>
+        </svg>`;
+    }
+
+    getRandomEmote() {
+        const emoteNames = Object.keys(this.emoteMap);
+        if (emoteNames.length === 0) return null;
+        const randomName = emoteNames[Math.floor(Math.random() * emoteNames.length)];
+        return { name: randomName, ...this.emoteMap[randomName] };
+    }
+
+    togglePicker(buttonEl) {
+        if (this.pickerOpen) {
+            this.closePicker();
+        } else {
+            this.openPicker(buttonEl);
+        }
+    }
+
+    openPicker(buttonEl) {
+        this.closePicker();
+        this.pickerOpen = true;
+
+        const picker = document.createElement('div');
+        picker.className = 'x7tv-picker';
+        picker.id = 'x7tv-picker';
+
+        // Header with search
+        const header = document.createElement('div');
+        header.className = 'x7tv-picker-header';
+
+        const search = document.createElement('input');
+        search.className = 'x7tv-picker-search';
+        search.type = 'text';
+        search.placeholder = 'Search emotes...';
+        search.addEventListener('input', () => {
+            this.filterPickerEmotes(search.value);
+        });
+        header.appendChild(search);
+        picker.appendChild(header);
+
+        // Emote grid
+        const grid = document.createElement('div');
+        grid.className = 'x7tv-picker-grid';
+        grid.id = 'x7tv-picker-grid';
+        this.populatePickerGrid(grid, '');
+        picker.appendChild(grid);
+
+        // Footer (shows hovered emote info)
+        const footer = document.createElement('div');
+        footer.className = 'x7tv-picker-footer';
+        footer.id = 'x7tv-picker-footer';
+        footer.innerHTML = '<span style="color: var(--text-muted)">Hover over an emote</span>';
+        picker.appendChild(footer);
+
+        // Position relative to button
+        const buttonRect = buttonEl.getBoundingClientRect();
+        const formContainer = buttonEl.closest('[class*="form_"]') || buttonEl.closest('[class*="channelTextArea_"]');
+
+        if (formContainer) {
+            formContainer.style.position = 'relative';
+            formContainer.appendChild(picker);
+        } else {
+            document.body.appendChild(picker);
+            picker.style.position = 'fixed';
+            picker.style.bottom = `${window.innerHeight - buttonRect.top + 8}px`;
+            picker.style.right = `${window.innerWidth - buttonRect.right}px`;
+        }
+
+        // Focus search
+        setTimeout(() => search.focus(), 0);
+
+        // Close on outside click
+        this.pickerClickHandler = (e) => {
+            if (!picker.contains(e.target) && !buttonEl.contains(e.target)) {
+                this.closePicker();
+            }
+        };
+        document.addEventListener('click', this.pickerClickHandler);
+    }
+
+    closePicker() {
+        this.pickerOpen = false;
+        const picker = document.getElementById('x7tv-picker');
+        if (picker) picker.remove();
+
+        if (this.pickerClickHandler) {
+            document.removeEventListener('click', this.pickerClickHandler);
+            this.pickerClickHandler = null;
+        }
+    }
+
+    populatePickerGrid(grid, filter) {
+        grid.innerHTML = '';
+
+        const filterLower = filter.toLowerCase();
+        let emoteNames = Object.keys(this.emoteMap);
+
+        if (filter) {
+            // Filter and sort by relevance
+            emoteNames = emoteNames
+                .filter(name => name.toLowerCase().includes(filterLower))
+                .sort((a, b) => {
+                    const aLower = a.toLowerCase();
+                    const bLower = b.toLowerCase();
+
+                    // Exact match first
+                    if (aLower === filterLower) return -1;
+                    if (bLower === filterLower) return 1;
+
+                    // Starts with filter second
+                    const aStarts = aLower.startsWith(filterLower);
+                    const bStarts = bLower.startsWith(filterLower);
+                    if (aStarts && !bStarts) return -1;
+                    if (bStarts && !aStarts) return 1;
+
+                    // Earlier position in string third
+                    const aIndex = aLower.indexOf(filterLower);
+                    const bIndex = bLower.indexOf(filterLower);
+                    if (aIndex !== bIndex) return aIndex - bIndex;
+
+                    // Alphabetical as tiebreaker
+                    return aLower.localeCompare(bLower);
+                });
+        }
+
+        if (emoteNames.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'x7tv-picker-empty';
+            empty.textContent = filter ? 'No emotes found' : 'No emotes loaded';
+            grid.appendChild(empty);
+            return;
+        }
+
+        const pickerSize = this.settings.pickerEmoteSize;
+
+        emoteNames.forEach(name => {
+            const emote = this.emoteMap[name];
+            const emoteEl = document.createElement('div');
+            emoteEl.className = 'x7tv-picker-emote';
+            emoteEl.style.height = `${pickerSize + 8}px`;
+            emoteEl.style.minWidth = `${pickerSize + 8}px`;
+
+            const img = document.createElement('img');
+            img.src = emote.url;
+            img.alt = name;
+            img.loading = 'lazy';
+            img.style.maxHeight = `${pickerSize}px`;
+            emoteEl.appendChild(img);
+
+            emoteEl.addEventListener('mouseenter', () => {
+                this.updatePickerFooter(name, emote);
+            });
+
+            emoteEl.addEventListener('click', () => {
+                this.insertEmote(name);
+                this.closePicker();
+            });
+
+            grid.appendChild(emoteEl);
+        });
+    }
+
+    filterPickerEmotes(filter) {
+        const grid = document.getElementById('x7tv-picker-grid');
+        if (grid) {
+            this.populatePickerGrid(grid, filter);
+        }
+    }
+
+    updatePickerFooter(name, emote) {
+        const footer = document.getElementById('x7tv-picker-footer');
+        if (!footer) return;
+
+        footer.innerHTML = '';
+
+        const img = document.createElement('img');
+        img.src = emote.url;
+        img.alt = name;
+        footer.appendChild(img);
+
+        const info = document.createElement('div');
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'x7tv-picker-footer-name';
+        nameEl.textContent = name;
+        info.appendChild(nameEl);
+
+        const creatorEl = document.createElement('div');
+        creatorEl.className = 'x7tv-picker-footer-creator';
+        creatorEl.textContent = `by ${emote.creator}`;
+        info.appendChild(creatorEl);
+
+        footer.appendChild(info);
+    }
+
+    insertEmote(emoteName) {
+        const textToInsert = emoteName + ' ';
+
+        // Method 1: Try ComponentDispatch
+        const ComponentDispatch = BdApi.Webpack.getModule(m => m.dispatchToLastSubscribed && m.emitter, { searchExports: true });
+        if (ComponentDispatch) {
+            ComponentDispatch.dispatchToLastSubscribed("INSERT_TEXT", { plainText: textToInsert });
+            this.log("Inserted via ComponentDispatch");
+            return;
+        }
+
+        // Method 2: Try finding the text area utilities
+        const TextAreaUtils = BdApi.Webpack.getModule(m => m.insertText && m.focus, { searchExports: true });
+        if (TextAreaUtils) {
+            TextAreaUtils.insertText(textToInsert);
+            this.log("Inserted via TextAreaUtils");
+            return;
+        }
+
+        // Method 3: Direct DOM manipulation with input simulation
+        const editor = document.querySelector('[data-slate-editor="true"]');
+        if (editor) {
+            editor.focus();
+
+            // Get the selection
+            const selection = window.getSelection();
+            if (selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                range.deleteContents();
+                const textNode = document.createTextNode(textToInsert);
+                range.insertNode(textNode);
+                range.setStartAfter(textNode);
+                range.setEndAfter(textNode);
+                selection.removeAllRanges();
+                selection.addRange(range);
+
+                // Trigger input event
+                editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: textToInsert }));
+                this.log("Inserted via DOM manipulation");
+                return;
+            }
+        }
+
+        // Method 4: Fallback - show toast with emote name to copy
+        BdApi.UI.showToast(`Copy: ${emoteName}`, { type: "info" });
+    }
+
     getSettingsPanel() {
         const panel = document.createElement("div");
         panel.className = "x7tv-settings";
@@ -655,9 +1099,25 @@ module.exports = class xQc7TVEmotes {
         // Emote Size
         panel.appendChild(this.createSliderSetting(
             "Emote Size",
-            "Size of emotes in pixels",
+            "Size of emotes in messages",
             "emoteSize",
             16, 128, "px"
+        ));
+
+        // Picker Emote Size
+        panel.appendChild(this.createSliderSetting(
+            "Picker Emote Size",
+            "Size of emotes in the picker",
+            "pickerEmoteSize",
+            24, 64, "px"
+        ));
+
+        // Hover Emote Size
+        panel.appendChild(this.createSliderSetting(
+            "Hover Preview Size",
+            "Size of emote preview when hovering",
+            "hoverEmoteSize",
+            64, 256, "px"
         ));
 
         // Match Mode
