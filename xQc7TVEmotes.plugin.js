@@ -2,7 +2,7 @@
  * @name xQc7TVEmotes
  * @author valerie.sh
  * @description Displays 7TV emotes from xQc's emote set (or any custom 7TV emote set) in Discord messages
- * @version 1.3.1
+ * @version 1.3.2
  * @authorId 1312596471778115627
  * @source https://github.com/atvalerie/agiwtrebivhdvd
  * @updateUrl https://raw.githubusercontent.com/atvalerie/agiwtrebivhdvd/main/xQc7TVEmotes.plugin.js
@@ -11,7 +11,7 @@
 module.exports = class xQc7TVEmotes {
     constructor() {
         this.name = "xQc7TVEmotes";
-        this.version = "1.3.1";
+        this.version = "1.3.2";
         this.author = "valerie.sh";
         this.description = "Displays 7TV emotes from any 7TV emote set in Discord messages";
 
@@ -87,21 +87,31 @@ module.exports = class xQc7TVEmotes {
     async checkForUpdates() {
         try {
             const updateUrl = "https://raw.githubusercontent.com/atvalerie/agiwtrebivhdvd/main/xQc7TVEmotes.plugin.js";
+            console.log(`[${this.name}] Checking for updates...`);
+
             const response = await fetch(updateUrl);
             const text = await response.text();
 
             // Extract version from remote file
             const versionMatch = text.match(/@version\s+(\d+\.\d+\.\d+)/);
-            if (!versionMatch) return;
+            if (!versionMatch) {
+                console.log(`[${this.name}] Could not find version in remote file`);
+                return;
+            }
 
             const remoteVersion = versionMatch[1];
             const localVersion = this.version;
 
+            console.log(`[${this.name}] Local: v${localVersion}, Remote: v${remoteVersion}`);
+
             if (this.isNewerVersion(remoteVersion, localVersion)) {
+                console.log(`[${this.name}] Update available!`);
                 this.showUpdateNotice(remoteVersion);
+            } else {
+                console.log(`[${this.name}] Already up to date`);
             }
         } catch (err) {
-            this.log("Failed to check for updates:", err);
+            console.error(`[${this.name}] Failed to check for updates:`, err);
         }
     }
 
@@ -117,73 +127,32 @@ module.exports = class xQc7TVEmotes {
     }
 
     showUpdateNotice(newVersion) {
-        // Create update notice
-        const notice = document.createElement('div');
-        notice.id = 'x7tv-update-notice';
-        notice.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(135deg, #5865F2 0%, #00b4ff 100%);
-            color: white;
-            padding: 10px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            z-index: 9999;
-            font-family: var(--font-primary);
-            font-size: 14px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        `;
+        const closeNotice = BdApi.UI.showNotice(
+            `xQc7TVEmotes update available! v${this.version} → v${newVersion}`,
+            {
+                type: "info",
+                buttons: [
+                    {
+                        label: "Update Now",
+                        onClick: () => {
+                            closeNotice();
+                            this.performUpdate();
+                        }
+                    },
+                    {
+                        label: "Later",
+                        onClick: () => closeNotice()
+                    }
+                ]
+            }
+        );
 
-        const text = document.createElement('span');
-        text.innerHTML = `<strong>xQc7TVEmotes</strong> update available! v${this.version} → v${newVersion}`;
-
-        const buttons = document.createElement('div');
-        buttons.style.display = 'flex';
-        buttons.style.gap = '10px';
-
-        const updateBtn = document.createElement('button');
-        updateBtn.textContent = 'Update Now';
-        updateBtn.style.cssText = `
-            background: white;
-            color: #5865F2;
-            border: none;
-            padding: 6px 16px;
-            border-radius: 4px;
-            font-weight: 600;
-            cursor: pointer;
-        `;
-        updateBtn.onclick = () => this.performUpdate();
-
-        const dismissBtn = document.createElement('button');
-        dismissBtn.textContent = 'Later';
-        dismissBtn.style.cssText = `
-            background: transparent;
-            color: white;
-            border: 1px solid white;
-            padding: 6px 16px;
-            border-radius: 4px;
-            font-weight: 600;
-            cursor: pointer;
-        `;
-        dismissBtn.onclick = () => notice.remove();
-
-        buttons.appendChild(updateBtn);
-        buttons.appendChild(dismissBtn);
-        notice.appendChild(text);
-        notice.appendChild(buttons);
-
-        document.body.appendChild(notice);
+        // Store close function for cleanup
+        this.updateNoticeClose = closeNotice;
     }
 
     async performUpdate() {
-        const notice = document.getElementById('x7tv-update-notice');
-        if (notice) {
-            notice.querySelector('span').innerHTML = '<strong>xQc7TVEmotes</strong> Updating...';
-            notice.querySelectorAll('button').forEach(b => b.disabled = true);
-        }
+        BdApi.UI.showToast("Downloading update...", { type: "info" });
 
         try {
             const updateUrl = "https://raw.githubusercontent.com/atvalerie/agiwtrebivhdvd/main/xQc7TVEmotes.plugin.js";
@@ -199,7 +168,6 @@ module.exports = class xQc7TVEmotes {
             // Write new code
             fs.writeFileSync(pluginPath, newCode, 'utf8');
 
-            if (notice) notice.remove();
             BdApi.UI.showToast("Update complete! Reloading plugin...", { type: "success" });
 
             // Reload plugin
@@ -209,7 +177,6 @@ module.exports = class xQc7TVEmotes {
         } catch (err) {
             console.error(`[${this.name}] Update failed:`, err);
             BdApi.UI.showToast("Update failed! Check console for details.", { type: "error" });
-            if (notice) notice.remove();
         }
     }
 
@@ -224,9 +191,11 @@ module.exports = class xQc7TVEmotes {
         this.emoteMap = {};
         this.emotesLoaded = false;
 
-        // Remove update notice if present
-        const notice = document.getElementById('x7tv-update-notice');
-        if (notice) notice.remove();
+        // Close update notice if present
+        if (this.updateNoticeClose) {
+            this.updateNoticeClose();
+            this.updateNoticeClose = null;
+        }
     }
 
     async loadEmotes() {
