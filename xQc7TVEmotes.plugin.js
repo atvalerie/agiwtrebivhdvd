@@ -2,7 +2,7 @@
  * @name xQc7TVEmotes
  * @author valerie.sh
  * @description Displays 7TV emotes from xQc's emote set (or any custom 7TV emote set) in Discord messages
- * @version 1.2.1
+ * @version 1.2.2
  * @authorId 1312596471778115627
  * @source https://github.com/atvalerie/agiwtrebivhdvd
  * @updateUrl https://raw.githubusercontent.com/atvalerie/agiwtrebivhdvd/main/xQc7TVEmotes.plugin.js
@@ -11,7 +11,7 @@
 module.exports = class xQc7TVEmotes {
     constructor() {
         this.name = "xQc7TVEmotes";
-        this.version = "1.2.1";
+        this.version = "1.2.2";
         this.author = "valerie.sh";
         this.description = "Displays 7TV emotes from any 7TV emote set in Discord messages";
 
@@ -23,6 +23,7 @@ module.exports = class xQc7TVEmotes {
             hoverEmoteSize: 128,
             matchMode: "word",
             showTooltips: true,
+            resizeDiscordEmotes: false,
             debugMode: false
         };
 
@@ -490,12 +491,41 @@ module.exports = class xQc7TVEmotes {
         this.styleElement.id = "x7tv-emotes-styles";
         this.styleElement.textContent = css;
         document.head.appendChild(this.styleElement);
+
+        // Dynamic style for Discord emote resizing
+        this.discordEmoteStyleElement = document.createElement("style");
+        this.discordEmoteStyleElement.id = "x7tv-discord-emote-styles";
+        document.head.appendChild(this.discordEmoteStyleElement);
+        this.updateDiscordEmoteStyles();
+    }
+
+    updateDiscordEmoteStyles() {
+        if (!this.discordEmoteStyleElement) return;
+
+        if (this.settings?.resizeDiscordEmotes) {
+            const size = this.settings.emoteSize;
+            this.discordEmoteStyleElement.textContent = `
+                /* Resize Discord emotes to match 7TV emote size - only in messages, not editor */
+                [class*="messageContent"] .emoji[data-type="emoji"],
+                [class*="messageContent"] img.emoji {
+                    height: ${size}px !important;
+                    width: auto !important;
+                    vertical-align: middle !important;
+                }
+            `;
+        } else {
+            this.discordEmoteStyleElement.textContent = '';
+        }
     }
 
     removeStyles() {
         if (this.styleElement) {
             this.styleElement.remove();
             this.styleElement = null;
+        }
+        if (this.discordEmoteStyleElement) {
+            this.discordEmoteStyleElement.remove();
+            this.discordEmoteStyleElement = null;
         }
     }
 
@@ -1509,7 +1539,8 @@ module.exports = class xQc7TVEmotes {
             "Emote Size",
             "Size of emotes in messages",
             "emoteSize",
-            16, 128, "px"
+            16, 128, "px",
+            () => this.updateDiscordEmoteStyles()
         ));
 
         // Picker Emote Size
@@ -1545,6 +1576,14 @@ module.exports = class xQc7TVEmotes {
             "Show Tooltips",
             "Show emote name when hovering over emotes",
             "showTooltips"
+        ));
+
+        // Resize Discord Emotes
+        panel.appendChild(this.createSwitchSetting(
+            "Resize Discord Emotes",
+            "Make Discord emotes the same size as 7TV emotes",
+            "resizeDiscordEmotes",
+            () => this.updateDiscordEmoteStyles()
         ));
 
         // Debug Mode
@@ -1606,7 +1645,7 @@ module.exports = class xQc7TVEmotes {
         return group;
     }
 
-    createSliderSetting(label, note, settingKey, min, max, units) {
+    createSliderSetting(label, note, settingKey, min, max, units, onChange) {
         const group = document.createElement("div");
         group.className = "x7tv-setting-group";
 
@@ -1631,6 +1670,7 @@ module.exports = class xQc7TVEmotes {
             this.settings[settingKey] = value;
             labelEl.textContent = `${label}: ${value}${units}`;
             this.saveSettings();
+            if (onChange) onChange();
         };
         group.appendChild(slider);
 
@@ -1671,7 +1711,7 @@ module.exports = class xQc7TVEmotes {
         return group;
     }
 
-    createSwitchSetting(label, note, settingKey) {
+    createSwitchSetting(label, note, settingKey, onChange) {
         const group = document.createElement("div");
         group.className = "x7tv-setting-group";
 
@@ -1701,6 +1741,7 @@ module.exports = class xQc7TVEmotes {
         checkbox.onchange = (e) => {
             this.settings[settingKey] = e.target.checked;
             this.saveSettings();
+            if (onChange) onChange();
         };
         switchLabel.appendChild(checkbox);
 
