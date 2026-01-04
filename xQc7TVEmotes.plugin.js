@@ -2,7 +2,7 @@
  * @name xQc7TVEmotes
  * @author valerie.sh
  * @description Displays 7TV emotes from xQc's emote set (or any custom 7TV emote set) in Discord messages
- * @version 1.3.0
+ * @version 1.3.1
  * @authorId 1312596471778115627
  * @source https://github.com/atvalerie/agiwtrebivhdvd
  * @updateUrl https://raw.githubusercontent.com/atvalerie/agiwtrebivhdvd/main/xQc7TVEmotes.plugin.js
@@ -11,7 +11,7 @@
 module.exports = class xQc7TVEmotes {
     constructor() {
         this.name = "xQc7TVEmotes";
-        this.version = "1.3.0";
+        this.version = "1.3.1";
         this.author = "valerie.sh";
         this.description = "Displays 7TV emotes from any 7TV emote set in Discord messages";
 
