@@ -2,7 +2,7 @@
  * @name xQc7TVEmotes
  * @author valerie.sh
  * @description Displays 7TV emotes from xQc's emote set (or any custom 7TV emote set) in Discord messages
- * @version 1.2.2
+ * @version 1.2.3
  * @authorId 1312596471778115627
  * @source https://github.com/atvalerie/agiwtrebivhdvd
  * @updateUrl https://raw.githubusercontent.com/atvalerie/agiwtrebivhdvd/main/xQc7TVEmotes.plugin.js
@@ -11,7 +11,7 @@
 module.exports = class xQc7TVEmotes {
     constructor() {
         this.name = "xQc7TVEmotes";
-        this.version = "1.2.2";
+        this.version = "1.2.3";
         this.author = "valerie.sh";
         this.description = "Displays 7TV emotes from any 7TV emote set in Discord messages";
 
@@ -483,6 +483,36 @@ module.exports = class xQc7TVEmotes {
             .x7tv-picker-footer-creator {
                 color: var(--text-muted);
                 font-size: 12px;
+            }
+
+            /* Fix emotes in reply previews - make them smaller to prevent clipping */
+            [class*="repliedTextContent"] .x7tv-emote,
+            [class*="repliedTextPreview"] .x7tv-emote {
+                height: 16px !important;
+                width: auto !important;
+                vertical-align: middle !important;
+            }
+
+            [class*="repliedTextContent"] [class*="emojiContainer"],
+            [class*="repliedTextPreview"] [class*="emojiContainer"] {
+                height: 16px !important;
+                vertical-align: middle !important;
+                display: inline-flex !important;
+                align-items: center !important;
+            }
+
+            [class*="repliedTextContent"] img.emoji,
+            [class*="repliedTextPreview"] img.emoji,
+            [class*="repliedTextContent"] img[data-type="emoji"],
+            [class*="repliedTextPreview"] img[data-type="emoji"] {
+                height: 16px !important;
+                width: 16px !important;
+                min-height: unset !important;
+                max-height: 16px !important;
+                vertical-align: middle !important;
+                object-fit: contain !important;
+                position: relative !important;
+                top: -2px !important;
             }
 
         `;
