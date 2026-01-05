@@ -2,7 +2,7 @@
  * @name xQc7TVEmotes
  * @author valerie.sh
  * @description Displays 7TV emotes from xQc's emote set (or any custom 7TV emote set) in Discord messages
- * @version 1.4.0
+ * @version 1.4.1
  * @authorId 1312596471778115627
  * @source https://github.com/atvalerie/agiwtrebivhdvd
  * @updateUrl https://raw.githubusercontent.com/atvalerie/agiwtrebivhdvd/main/xQc7TVEmotes.plugin.js
@@ -11,7 +11,7 @@
 module.exports = class xQc7TVEmotes {
     constructor() {
         this.name = "xQc7TVEmotes";
-        this.version = "1.4.0";
+        this.version = "1.4.1";
         this.author = "valerie.sh";
         this.description = "Displays 7TV emotes from any 7TV emote set in Discord messages";
 
@@ -327,27 +327,47 @@ module.exports = class xQc7TVEmotes {
         // Pre-compute IDs set for O(1) lookup
         this.sevenTVIds = new Set(Object.values(this.emoteMap).map(e => e.id));
 
-        // Pre-compute lowercase names map for fast case-insensitive search
+        // Pre-compute emote names Set for O(1) lookup
+        this.emoteNamesSet = new Set(names);
+
+        // Pre-compute lowercase to original name map
         this.emoteNamesLower = new Map();
         names.forEach(name => {
             this.emoteNamesLower.set(name.toLowerCase(), name);
         });
 
-        // Pre-sort names alphabetically
-        this.emoteNamesSorted = names.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+        // Pre-sort names alphabetically (compute lowercase once)
+        this.emoteNamesSorted = names
+            .map(name => ({ name, lower: name.toLowerCase() }))
+            .sort((a, b) => a.lower.localeCompare(b.lower))
+            .map(item => item.name);
 
-        // Pre-compute search index for faster autocomplete
+        // Pre-compute search index with pre-sorted results
         this.searchIndex = new Map();
         names.forEach(name => {
             const lower = name.toLowerCase();
-            // Index by each starting position
             for (let i = 0; i < Math.min(lower.length, 3); i++) {
                 const prefix = lower.slice(0, i + 1);
                 if (!this.searchIndex.has(prefix)) {
                     this.searchIndex.set(prefix, []);
                 }
-                this.searchIndex.get(prefix).push(name);
+                this.searchIndex.get(prefix).push({ name, lower });
             }
+        });
+
+        // Sort each prefix's results once during cache build
+        this.searchIndex.forEach((items, prefix) => {
+            items.sort((a, b) => {
+                // Exact match first
+                if (a.lower === prefix) return -1;
+                if (b.lower === prefix) return 1;
+                // Starts with prefix second
+                const aStarts = a.lower.startsWith(prefix);
+                const bStarts = b.lower.startsWith(prefix);
+                if (aStarts && !bStarts) return -1;
+                if (bStarts && !aStarts) return 1;
+                return a.lower.localeCompare(b.lower);
+            });
         });
 
         this.log('Caches built');
@@ -1253,35 +1273,39 @@ module.exports = class xQc7TVEmotes {
         // Use pre-sorted names or search index for performance
         let emoteNames;
         if (filter) {
-            // Use search index for faster lookup
+            // Use search index for faster lookup - entries are { name, lower } objects
             const prefix = filterLower.slice(0, Math.min(filterLower.length, 3));
-            let candidates = this.searchIndex?.get(prefix) || this.emoteNamesSorted || Object.keys(this.emoteMap);
+            const indexedCandidates = this.searchIndex?.get(prefix);
 
-            // Filter and sort by relevance
-            emoteNames = candidates
-                .filter(name => name.toLowerCase().includes(filterLower))
-                .sort((a, b) => {
-                    const aLower = a.toLowerCase();
-                    const bLower = b.toLowerCase();
+            if (indexedCandidates) {
+                // Filter and sort by relevance using pre-computed lowercase
+                emoteNames = indexedCandidates
+                    .filter(item => item.lower.includes(filterLower))
+                    .sort((a, b) => {
+                        // Exact match first
+                        if (a.lower === filterLower) return -1;
+                        if (b.lower === filterLower) return 1;
 
-                    // Exact match first
-                    if (aLower === filterLower) return -1;
-                    if (bLower === filterLower) return 1;
+                        // Starts with filter second
+                        const aStarts = a.lower.startsWith(filterLower);
+                        const bStarts = b.lower.startsWith(filterLower);
+                        if (aStarts && !bStarts) return -1;
+                        if (bStarts && !aStarts) return 1;
 
-                    // Starts with filter second
-                    const aStarts = aLower.startsWith(filterLower);
-                    const bStarts = bLower.startsWith(filterLower);
-                    if (aStarts && !bStarts) return -1;
-                    if (bStarts && !aStarts) return 1;
+                        // Earlier position in string third
+                        const aIndex = a.lower.indexOf(filterLower);
+                        const bIndex = b.lower.indexOf(filterLower);
+                        if (aIndex !== bIndex) return aIndex - bIndex;
 
-                    // Earlier position in string third
-                    const aIndex = aLower.indexOf(filterLower);
-                    const bIndex = bLower.indexOf(filterLower);
-                    if (aIndex !== bIndex) return aIndex - bIndex;
-
-                    // Alphabetical as tiebreaker
-                    return aLower.localeCompare(bLower);
-                });
+                        // Alphabetical as tiebreaker
+                        return a.lower.localeCompare(b.lower);
+                    })
+                    .map(item => item.name);
+            } else {
+                // Fallback to sorted names array
+                emoteNames = (this.emoteNamesSorted || Object.keys(this.emoteMap))
+                    .filter(name => name.toLowerCase().includes(filterLower));
+            }
         } else {
             // Use pre-sorted list
             emoteNames = this.emoteNamesSorted || Object.keys(this.emoteMap);
@@ -1425,15 +1449,17 @@ module.exports = class xQc7TVEmotes {
         if (MessageActions?.sendMessage) {
             this.log('Found MessageActions.sendMessage, patching...');
             BdApi.Patcher.before(this.name, MessageActions, 'sendMessage', (_, args) => {
+                // Use emoteNamesSet for O(1) lookups
+                const emoteSet = self.emoteNamesSet;
+
                 // args[1] is the message object with content
                 if (args[1]?.content) {
                     const original = args[1].content;
                     let modified = original;
 
                     // First: Replace <:EmoteName:id> or <a:EmoteName:id> (Discord emoji format)
-                    modified = modified.replace(/<a?:([^:]+):(\d+)>/g, (match, emoteName, emojiId) => {
-                        if (self.emoteMap[emoteName]) {
-                            self.log(`Converting ${match} to ${emoteName}`);
+                    modified = modified.replace(/<a?:([^:]+):(\d+)>/g, (match, emoteName) => {
+                        if (emoteSet?.has(emoteName)) {
                             return emoteName;
                         }
                         return match;
@@ -1441,8 +1467,7 @@ module.exports = class xQc7TVEmotes {
 
                     // Second: Replace :EmoteName: (raw colon format for 7TV-only emotes)
                     modified = modified.replace(/:([^:\s]+):/g, (match, emoteName) => {
-                        if (self.emoteMap[emoteName]) {
-                            self.log(`Converting ${match} to ${emoteName}`);
+                        if (emoteSet?.has(emoteName)) {
                             return emoteName;
                         }
                         return match;
@@ -1450,18 +1475,18 @@ module.exports = class xQc7TVEmotes {
 
                     if (modified !== original) {
                         args[1].content = modified;
-                        self.log('Message modified:', original, '->', args[1].content);
+                        self.log('Message modified:', original, '->', modified);
                     }
                 }
 
                 // Remove 7TV emotes from invalidEmojis (prevents "emoji from different server" error)
                 if (args[1]?.invalidEmojis?.length > 0) {
-                    args[1].invalidEmojis = args[1].invalidEmojis.filter(e => !self.emoteMap[e?.name]);
+                    args[1].invalidEmojis = args[1].invalidEmojis.filter(e => !emoteSet?.has(e?.name));
                 }
 
                 // Remove 7TV emojis from validNonShortcutEmojis
                 if (args[1]?.validNonShortcutEmojis?.length > 0) {
-                    args[1].validNonShortcutEmojis = args[1].validNonShortcutEmojis.filter(e => !self.emoteMap[e?.name]);
+                    args[1].validNonShortcutEmojis = args[1].validNonShortcutEmojis.filter(e => !emoteSet?.has(e?.name));
                 }
             });
         } else {
@@ -1642,29 +1667,43 @@ module.exports = class xQc7TVEmotes {
 
         const queryLower = query.toLowerCase();
 
-        // Use search index for faster lookup
-        let candidates;
+        // Use search index for faster lookup - candidates are { name, lower } objects
         const prefix = queryLower.slice(0, Math.min(queryLower.length, 3));
-        if (this.searchIndex?.has(prefix)) {
-            candidates = this.searchIndex.get(prefix);
-        } else {
-            candidates = this.emoteNamesSorted || Object.keys(this.emoteMap);
-        }
+        const indexedCandidates = this.searchIndex?.get(prefix);
 
-        const matches = candidates
-            .filter(name => name.toLowerCase().includes(queryLower))
-            .sort((a, b) => {
-                const aLower = a.toLowerCase();
-                const bLower = b.toLowerCase();
-                if (aLower === queryLower) return -1;
-                if (bLower === queryLower) return 1;
-                const aStarts = aLower.startsWith(queryLower);
-                const bStarts = bLower.startsWith(queryLower);
-                if (aStarts && !bStarts) return -1;
-                if (bStarts && !aStarts) return 1;
-                return aLower.localeCompare(bLower);
-            })
-            .slice(0, 5);
+        let matches;
+        if (indexedCandidates) {
+            // Search index contains pre-sorted { name, lower } objects
+            // Filter for longer queries, results are already sorted by prefix priority
+            if (queryLower.length <= 3) {
+                // Short query: index is already sorted, just take top matches
+                matches = indexedCandidates
+                    .filter(item => item.lower.includes(queryLower))
+                    .slice(0, 5)
+                    .map(item => item.name);
+            } else {
+                // Longer query: filter and re-sort for the full query
+                matches = indexedCandidates
+                    .filter(item => item.lower.includes(queryLower))
+                    .sort((a, b) => {
+                        if (a.lower === queryLower) return -1;
+                        if (b.lower === queryLower) return 1;
+                        const aStarts = a.lower.startsWith(queryLower);
+                        const bStarts = b.lower.startsWith(queryLower);
+                        if (aStarts && !bStarts) return -1;
+                        if (bStarts && !aStarts) return 1;
+                        return a.lower.localeCompare(b.lower);
+                    })
+                    .slice(0, 5)
+                    .map(item => item.name);
+            }
+        } else {
+            // Fallback to sorted names array
+            const names = this.emoteNamesSorted || Object.keys(this.emoteMap);
+            matches = names
+                .filter(name => name.toLowerCase().includes(queryLower))
+                .slice(0, 5);
+        }
 
         if (matches.length === 0) return results;
 
