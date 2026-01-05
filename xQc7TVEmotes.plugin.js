@@ -2,7 +2,7 @@
  * @name xQc7TVEmotes
  * @author valerie.sh
  * @description Displays 7TV emotes from xQc's emote set (or any custom 7TV emote set) in Discord messages
- * @version 1.3.2
+ * @version 1.4.0
  * @authorId 1312596471778115627
  * @source https://github.com/atvalerie/agiwtrebivhdvd
  * @updateUrl https://raw.githubusercontent.com/atvalerie/agiwtrebivhdvd/main/xQc7TVEmotes.plugin.js
@@ -11,7 +11,7 @@
 module.exports = class xQc7TVEmotes {
     constructor() {
         this.name = "xQc7TVEmotes";
-        this.version = "1.3.2";
+        this.version = "1.4.0";
         this.author = "valerie.sh";
         this.description = "Displays 7TV emotes from any 7TV emote set in Discord messages";
 
@@ -69,8 +69,16 @@ module.exports = class xQc7TVEmotes {
         this.log("Starting plugin...");
         this.injectStyles();
 
-        // Check for updates
+        // Check if we just updated and show changelog
+        const pendingChangelog = BdApi.Data.load(this.name, 'pendingChangelog');
+        if (pendingChangelog) {
+            BdApi.Data.delete(this.name, 'pendingChangelog');
+            this.showPostUpdateChangelog(pendingChangelog.from, pendingChangelog.to);
+        }
+
+        // Check for updates on launch and every 15 minutes
         this.checkForUpdates();
+        this.updateCheckInterval = setInterval(() => this.checkForUpdates(), 15 * 60 * 1000);
 
         this.loadEmotes().then(() => {
             this.setupObserver();
@@ -136,7 +144,13 @@ module.exports = class xQc7TVEmotes {
                         label: "Update Now",
                         onClick: () => {
                             closeNotice();
-                            this.performUpdate();
+                            this.performUpdate(newVersion);
+                        }
+                    },
+                    {
+                        label: "View Changes",
+                        onClick: () => {
+                            this.showChangelog(this.version, newVersion);
                         }
                     },
                     {
@@ -151,8 +165,60 @@ module.exports = class xQc7TVEmotes {
         this.updateNoticeClose = closeNotice;
     }
 
-    async performUpdate() {
+    async fetchChangelog(sinceVersion) {
+        try {
+            const response = await fetch('https://api.github.com/repos/atvalerie/agiwtrebivhdvd/commits?per_page=20');
+            const commits = await response.json();
+
+            const changelog = [];
+            for (const commit of commits) {
+                const message = commit.commit.message;
+                if (message.includes(`v${sinceVersion}`) || message.includes(sinceVersion)) {
+                    break;
+                }
+                if (message.startsWith('Merge')) continue;
+                const firstLine = message.split('\n')[0];
+                // Skip the "Generated with Claude Code" lines
+                if (firstLine && !firstLine.includes('Generated with') && !changelog.includes(firstLine)) {
+                    changelog.push(firstLine);
+                }
+            }
+            return changelog;
+        } catch (err) {
+            console.error(`[${this.name}] Failed to fetch changelog:`, err);
+            return [];
+        }
+    }
+
+    async showChangelog(fromVersion, toVersion) {
+        const changelog = await this.fetchChangelog(fromVersion);
+        const changelogText = changelog.length > 0
+            ? changelog.map(c => `• ${c}`).join('\n')
+            : 'No changelog available.';
+
+        BdApi.UI.showConfirmationModal(
+            `Changelog: v${fromVersion} → v${toVersion}`,
+            changelogText,
+            {
+                confirmText: 'Update Now',
+                cancelText: 'Close',
+                onConfirm: () => this.performUpdate(toVersion)
+            }
+        );
+    }
+
+    async showPostUpdateChangelog(fromVersion, toVersion) {
+        const changelog = await this.fetchChangelog(fromVersion);
+        const changelogText = changelog.length > 0
+            ? `✓ Update installed successfully!\n\nWhat's new:\n${changelog.map(c => `• ${c}`).join('\n')}`
+            : '✓ Update installed successfully!';
+
+        BdApi.UI.alert(`xQc7TVEmotes Updated to v${toVersion}`, changelogText);
+    }
+
+    async performUpdate(newVersion) {
         BdApi.UI.showToast("Downloading update...", { type: "info" });
+        const oldVersion = this.version;
 
         try {
             const updateUrl = "https://raw.githubusercontent.com/atvalerie/agiwtrebivhdvd/main/xQc7TVEmotes.plugin.js";
@@ -167,6 +233,9 @@ module.exports = class xQc7TVEmotes {
 
             // Write new code
             fs.writeFileSync(pluginPath, newCode, 'utf8');
+
+            // Store info for post-update changelog
+            BdApi.Data.save(this.name, 'pendingChangelog', { from: oldVersion, to: newVersion });
 
             BdApi.UI.showToast("Update complete! Reloading plugin...", { type: "success" });
 
@@ -195,6 +264,12 @@ module.exports = class xQc7TVEmotes {
         if (this.updateNoticeClose) {
             this.updateNoticeClose();
             this.updateNoticeClose = null;
+        }
+
+        // Clear update check interval
+        if (this.updateCheckInterval) {
+            clearInterval(this.updateCheckInterval);
+            this.updateCheckInterval = null;
         }
     }
 
